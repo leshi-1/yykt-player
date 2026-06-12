@@ -46,7 +46,3 @@ yykt-extension/
 - 含 iframe 内视频检测
 - 使用 MediaSession API 保持播放活跃
 - MutationObserver 监听页面动态变化
-
-## 许可
-
-MIT
