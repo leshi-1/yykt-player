@@ -1,6 +1,6 @@
 # YYKT Auto Player
 
-蕴瑜课堂（courses.gdut.edu.cn）视频自动播放 Chrome 扩展。
+蕴瑜课堂视频自动播放 Chrome 扩展。
 
 ## 功能
 
