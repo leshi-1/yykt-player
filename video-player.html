@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视频自动播放器</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #252525;
+    --text: #e0e0e0;
+    --text2: #a0a0a0;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --danger: #ef4444;
+    --radius: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ========== 主区域 ========== */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .player-container {
+    flex: 1;
+    background: #000;
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .player-container video,
+  .player-container iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    object-fit: contain;
+  }
+
+  /* 覆盖层 */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .overlay-text { text-align: center; color: var(--text2); pointer-events: auto; }
+  .overlay-text .icon { font-size: 56px; margin-bottom: 12px; }
+  .overlay-text p { font-size: 15px; line-height: 1.9; }
+  .overlay-text kbd {
+    background: var(--surface2); padding: 2px 8px; border-radius: 4px;
+    font-size: 13px; border: 1px solid #444; color: #ccc;
+  }
+  .overlay-text .badge {
+    display: inline-block; color: #fff; padding: 1px 8px;
+    border-radius: 10px; font-size: 11px; margin: 0 2px;
+  }
+  .badge-bl { background: #fb7299; }
+  .badge-yt { background: #ff0000; }
+  .badge-mp4 { background: #22c55e; }
+
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid #333;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box {
+    background: #3a1a1a; border: 1px solid #5a2a2a;
+    border-radius: var(--radius); padding: 16px 24px;
+    text-align: center; pointer-events: auto; max-width: 480px;
+  }
+  .error-box .err-icon { font-size: 32px; margin-bottom: 8px; }
+  .error-box .err-title { color: #f87171; font-weight: 600; margin-bottom: 4px; }
+  .error-box .err-detail { color: #a0a0a0; font-size: 13px; margin-bottom: 12px; }
+  .error-box button {
+    background: var(--accent); color: #fff; border: none;
+    padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;
+    margin: 0 4px;
+  }
+  .error-box button:hover { background: var(--accent-hover); }
+  .error-box .btn-secondary { background: #444; }
+  .error-box .btn-secondary:hover { background: #555; }
+
+  .unmute-prompt {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.25);
+    color: #fff; padding: 10px 22px; border-radius: 30px;
+    font-size: 14px; cursor: pointer; z-index: 5; display: none;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .unmute-prompt:hover { background: rgba(0,0,0,0.9); border-color: rgba(255,255,255,0.5); }
+  .unmute-prompt.show { display: block; }
+
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: #1a3a1a; border: 1px solid #2a5a2a; color: #86efac;
+    padding: 10px 20px; border-radius: var(--radius); font-size: 14px;
+    z-index: 999; animation: fadeInOut 2.5s forwards; pointer-events: none;
+  }
+  .toast.warn { background: #3a3a1a; border-color: #5a5a2a; color: #fde68a; }
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    75% { opacity: 1; } 100% { opacity: 0; }
+  }
+
+  /* 控制栏 */
+  .controls {
+    background: var(--surface); padding: 10px 20px;
+    display: flex; align-items: center; gap: 12px; border-top: 1px solid #333;
+  }
+  .btn {
+    background: none; border: none; color: var(--text);
+    font-size: 20px; width: 36px; height: 36px; border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease; flex-shrink: 0; cursor: pointer;
+  }
+  .btn:hover { background: var(--surface2); }
+  .btn.active { color: var(--accent); }
+  .btn-play { font-size: 28px; width: 48px; height: 48px; }
+
+  .progress-wrap { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .time { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums;
+    width: 45px; text-align: center; flex-shrink: 0; }
+  .progress-bar {
+    flex: 1; height: 6px; background: #444; border-radius: 3px;
+    cursor: pointer; position: relative; transition: height 0.1s;
+  }
+  .progress-bar:hover { height: 8px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: inherit;
+    transition: width 0.1s linear; }
+  .progress-bar.no-seek { cursor: default; opacity: 0.4; }
+
+  .volume-wrap { display: flex; align-items: center; gap: 4px; }
+  .volume-slider {
+    width: 80px; height: 4px; -webkit-appearance: none;
+    background: #444; border-radius: 2px; outline: none; cursor: pointer;
+  }
+  .volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: var(--text); border-radius: 50%; cursor: pointer;
+  }
+
+  .video-title {
+    padding: 8px 20px; font-size: 14px; color: var(--text2);
+    background: var(--surface); border-top: 1px solid #2a2a2a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .platform-tag { font-size: 11px; padding: 1px 8px; border-radius: 10px; flex-shrink: 0; }
+  .platform-tag.bl { background: #fb7299; color: #fff; }
+  .platform-tag.yt { background: #ff0000; color: #fff; }
+  .platform-tag.mp4 { background: #22c55e; color: #000; }
+
+  /* ========== 侧边栏 ========== */
+  .sidebar {
+    width: 350px; background: var(--surface);
+    border-left: 1px solid #333; display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 16px; font-size: 16px; font-weight: 600;
+    border-bottom: 1px solid #333;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-header .count { font-size: 13px; color: var(--text2); font-weight: 400; }
+  .add-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #333; }
+  .add-bar input {
+    flex: 1; background: var(--surface2); border: 1px solid #444;
+    color: var(--text); padding: 8px 12px; border-radius: var(--radius);
+    font-size: 14px; outline: none; transition: border 0.15s;
+  }
+  .add-bar input:focus { border-color: var(--accent); }
+  .add-bar input::placeholder { color: #666; }
+  .add-bar .btn-add {
+    background: var(--accent); color: #fff; font-size: 14px;
+    width: auto; padding: 0 16px; font-weight: 500;
+  }
+  .add-bar .btn-add:hover { background: var(--accent-hover); }
+
+  .playlist { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  .playlist::-webkit-scrollbar { width: 6px; }
+  .playlist::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  .playlist::-webkit-scrollbar-thumb:hover { background: #555; }
+
+  .playlist-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; cursor: pointer; transition: background 0.15s;
+    border-bottom: 1px solid #222;
+  }
+  .playlist-item:hover { background: var(--surface2); }
+  .playlist-item.playing {
+    background: #1a2740; border-left: 3px solid var(--accent); padding-left: 13px;
+  }
+  .playlist-item .index {
+    width: 24px; height: 24px; border-radius: 50%; background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--text2); flex-shrink: 0;
+  }
+  .playlist-item.playing .index { background: var(--accent); color: #fff; }
+  .playlist-item .info { flex: 1; min-width: 0; }
+  .playlist-item .name {
+    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .playlist-item .url-preview {
+    font-size: 11px; color: var(--text2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+  }
+  .playlist-item .platform-tag { font-size: 10px; padding: 1px 6px; flex-shrink: 0; }
+  .playlist-item .api-badge {
+    font-size: 10px; padding: 1px 5px; border-radius: 3px;
+    background: #1a3a1a; color: #86efac; flex-shrink: 0;
+  }
+  .playlist-item .btn-remove {
+    background: none; border: none; color: #666; cursor: pointer;
+    font-size: 16px; width: 28px; height: 28px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; flex-shrink: 0; transition: all 0.15s;
+  }
+  .playlist-item:hover .btn-remove { opacity: 1; }
+  .playlist-item .btn-remove:hover { color: var(--danger); background: #3a1a1a; }
+
+  .sidebar-footer {
+    padding: 12px 16px; border-top: 1px solid #333; display: flex; gap: 8px;
+  }
+  .sidebar-footer .btn { flex: 1; font-size: 13px; width: auto; gap: 4px; }
+  .btn-clear { color: var(--danger) !important; }
+
+  @media (max-width: 768px) {
+    body { flex-direction: column; }
+    .sidebar { width: 100%; height: 42%; border-left: none; border-top: 1px solid #333; }
+    .main { height: 58%; }
+    .volume-slider { width: 60px; }
+    .controls { padding: 8px 12px; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== 主区域 ========== -->
+<div class="main">
+  <div class="player-container" id="playerContainer">
+    <video id="video" preload="auto" playsinline webkit-playsinline
+           x5-video-player-type="h5" x5-video-orientation="portraint"
+           referrerpolicy="no-referrer" controlsList="nodownload" muted
+           style="display:none"></video>
+
+    <iframe id="iframePlayer" allow="autoplay; fullscreen" allowfullscreen
+            style="display:none" referrerpolicy="no-referrer"></iframe>
+
+    <div class="overlay" id="overlay">
+      <div class="overlay-text" id="overlayEmpty">
+        <div class="icon">🎬</div>
+        <p>粘贴视频网址，自动识别并播放</p>
+        <p>
+          <span class="badge badge-bl">B站</span>
+          <span class="badge badge-yt">YouTube</span>
+          <span class="badge badge-mp4">直链</span>
+          <span class="badge" style="background:#888;">网页</span>
+          都支持
+        </p>
+        <p style="font-size:12px;color:#888;margin-top:6px;line-height:1.6;">
+          💡 <b>学校/第三方网站有验证码？</b><br>
+          按 <kbd>F12</kbd> → Network → 刷新页面 → 筛选 <b>media/mp4/m3u8</b><br>
+          找到视频文件URL，粘贴过来即可绕过所有验证！
+        </p>
+        <p style="font-size:12px;color:#666;margin-top:4px;">
+          也可直接 <kbd>Ctrl+V</kbd> 粘贴网页链接（自动嗅探视频源）
+        </p>
+      </div>
+      <div class="overlay-text" id="overlayLoading" style="display:none">
+        <div class="spinner"></div>
+        <p id="overlayLoadingText">正在加载视频...</p>
+      </div>
+      <div id="overlayError" style="display:none; pointer-events:auto;">
+        <div class="error-box">
+          <div class="err-icon">⚠️</div>
+          <div class="err-title" id="errTitle">加载失败</div>
+          <div class="err-detail" id="errDetail"></div>
+          <button id="btnRetry">🔄 重试</button>
+          <button id="btnFallback" class="btn-secondary" style="display:none">📺 用内嵌页播放</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="unmute-prompt" id="unmutePrompt">🔇 点击取消静音</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="btnPrev" title="上一个 (P)">⏮</button>
+    <button class="btn btn-play" id="btnPlay" title="播放/暂停 (空格)">▶</button>
+    <button class="btn" id="btnNext" title="下一个 (N)">⏭</button>
+
+    <div class="progress-wrap">
+      <span class="time" id="currentTime">00:00</span>
+      <div class="progress-bar" id="progressBar">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <span class="time" id="duration">00:00</span>
+    </div>
+
+    <div class="volume-wrap">
+      <button class="btn" id="btnMute" title="静音 (M)">🔇</button>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100">
+    </div>
+
+    <button class="btn active" id="btnLoop" title="列表循环 (L)">🔁</button>
+    <button class="btn" id="btnFullscreen" title="全屏 (F)">⛶</button>
+  </div>
+
+  <div class="video-title" id="videoTitle"><span>准备就绪</span></div>
+</div>
+
+<!-- ========== 侧边栏 ========== -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    播放列表
+    <span class="count" id="playlistCount">0 个视频</span>
+  </div>
+  <div class="add-bar">
+    <input type="text" id="urlInput" placeholder="粘贴 B站/YouTube/直链 URL...">
+    <button class="btn btn-add" id="btnAdd">添加</button>
+  </div>
+  <div class="playlist" id="playlist"></div>
+  <div class="sidebar-footer">
+    <button class="btn btn-clear" id="btnClear">🗑 清空列表</button>
+    <button class="btn" id="btnExport">📋 导出列表</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ============================================================
+  //  DOM
+  // ============================================================
+  var video         = document.getElementById('video');
+  var iframePlayer  = document.getElementById('iframePlayer');
+  var container     = document.getElementById('playerContainer');
+  var overlayEmpty  = document.getElementById('overlayEmpty');
+  var overlayLoading= document.getElementById('overlayLoading');
+  var overlayLoadingText = document.getElementById('overlayLoadingText');
+  var overlayError  = document.getElementById('overlayError');
+  var errTitle      = document.getElementById('errTitle');
+  var errDetail     = document.getElementById('errDetail');
+  var btnRetry      = document.getElementById('btnRetry');
+  var btnFallback   = document.getElementById('btnFallback');
+  var unmutePrompt  = document.getElementById('unmutePrompt');
+  var btnPlay       = document.getElementById('btnPlay');
+  var btnPrev       = document.getElementById('btnPrev');
+  var btnNext       = document.getElementById('btnNext');
+  var btnMute       = document.getElementById('btnMute');
+  var btnLoop       = document.getElementById('btnLoop');
+  var btnFullscreen = document.getElementById('btnFullscreen');
+  var btnAdd        = document.getElementById('btnAdd');
+  var btnClear      = document.getElementById('btnClear');
+  var btnExport     = document.getElementById('btnExport');
+  var progressBar   = document.getElementById('progressBar');
+  var progressFill  = document.getElementById('progressFill');
+  var currentTimeEl = document.getElementById('currentTime');
+  var durationEl    = document.getElementById('duration');
+  var volumeSlider  = document.getElementById('volumeSlider');
+  var videoTitle    = document.getElementById('videoTitle');
+  var playlistEl    = document.getElementById('playlist');
+  var playlistCount = document.getElementById('playlistCount');
+  var urlInput      = document.getElementById('urlInput');
+
+  // ============================================================
+  //  状态
+  // ============================================================
+  var playlist       = [];
+  var currentIndex   = -1;
+  var loopMode       = true;
+  var userInteracted = false;
+  var currentType    = null; // 'direct' | 'youtube' | 'iframe'
+  var iframeTimer    = null;
+  var ytListeningSent= false;
+  var pendingBiliFetch = null; // 正在进行的 B站 API 请求的取消标记
+
+  // ============================================================
+  //  持久化存储（播放列表 + 进度 + 当前第几集）
+  // ============================================================
+  var STORAGE_KEY = 'vplayer-v5';
+
+  function saveState() {
+    try {
+      var toSave = playlist.map(function(item) {
+        var p = item._parsed;
+        var cleanParsed = null;
+        if (p) {
+          cleanParsed = {
+            type: p.type,
+            name: p.name,
+            platformTag: p.platformTag,
+            embedUrl: p.embedUrl,
+            bvid: p.bvid,
+            aid: p.aid,
+            page: p.page,
+            // B站 streamUrl 是临时签名URL不保存；嗅探到的学校网站URL保留
+            streamUrl: (p.type === 'bilibili') ? null : (p.streamUrl || null)
+          };
+        }
+        return { url: item.url, name: item.name, _parsed: cleanParsed };
+      });
+
+      var state = {
+        playlist: toSave,
+        currentIndex: currentIndex,
+        currentTime: (currentType === 'direct' && video.duration) ? video.currentTime : 0,
+        loopMode: loopMode
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch(e) { console.warn('保存状态失败:', e); }
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      var state = JSON.parse(raw);
+      if (!state || !state.playlist) return false;
+
+      playlist = state.playlist;
+      if (!Array.isArray(playlist)) { playlist = []; return false; }
+
+      // 恢复循环模式
+      if (typeof state.loopMode === 'boolean') loopMode = state.loopMode;
+
+      // 恢复播放进度
+      var savedIndex = (typeof state.currentIndex === 'number') ? state.currentIndex : -1;
+      var savedTime  = (typeof state.currentTime === 'number') ? state.currentTime : 0;
+
+      // 确保 _parsed 存在
+      playlist.forEach(function(item) {
+        if (!item._parsed) item._parsed = parseUrl(item.url);
+      });
+
+      renderPlaylist();
+      updatePlayButton();
+      updateMuteButton();
+
+      if (playlist.length > 0) {
+        if (savedIndex >= 0 && savedIndex < playlist.length) {
+          // 先加载对应视频但不自动播放
+          currentIndex = savedIndex;
+          var item = playlist[savedIndex];
+          if (!item._parsed) item._parsed = parseUrl(item.url);
+
+          // 对 B站视频，触发重新 fetch 流地址
+          if (item._parsed.type === 'bilibili') {
+            // 先显示封面状态，等用户点击再真正加载
+            videoTitle.innerHTML = '<span class="platform-tag bl">B站</span><span>' +
+              escapeHtml(item.name || item._parsed.name || item.url) + '</span>';
+            showOverlay('empty');
+            // 修改空状态文案提示恢复位置
+            overlayEmpty.innerHTML =
+              '<div class="icon">🎬</div>' +
+              '<p>已恢复播放列表（' + playlist.length + ' 个视频）<br>' +
+              '上次看到：<b>' + escapeHtml(item.name || item._parsed.name || '视频') + '</b></p>' +
+              '<p style="font-size:13px;color:#888;margin-top:8px;">点击播放按钮继续观看</p>';
+            updatePlayButton();
+            saveState();
+            return true;
+          }
+
+          // 对直链视频，可以尝试恢复位置
+          if (item._parsed.type === 'direct') {
+            var url = item._parsed.embedUrl || item.url;
+            setPlayerMode('direct');
+            video.src = url;
+            video.load();
+            if (savedTime > 0) {
+              video.currentTime = savedTime;
+            }
+            videoTitle.innerHTML = '<span class="platform-tag mp4">直链</span><span>' +
+              escapeHtml(item.name || item._parsed.name || url) + '</span>';
+            showOverlay('none');
+            if (savedTime > 0) {
+              overlayEmpty.innerHTML =
+                '<div class="icon">⏸</div>' +
+                '<p>已恢复到 <b>' + formatTime(savedTime) + '</b><br>点击播放继续观看</p>';
+              showOverlay('empty');
+            }
+            updatePlayButton();
+            saveState();
+            return true;
+          }
+
+          // YouTube / iframe：只恢复标题，不自动加载
+          var parsed2 = item._parsed;
+          var tag2 = getPlatformLabel(parsed2);
+          var cls2 = getPlatformClass(parsed2);
+          videoTitle.innerHTML = '<span class="platform-tag ' + cls2 + '">' + tag2 + '</span><span>' +
+            escapeHtml(item.name || parsed2.name || item.url) + '</span>';
+          showOverlay('empty');
+          overlayEmpty.innerHTML =
+            '<div class="icon">🎬</div>' +
+            '<p>已恢复播放列表（' + playlist.length + ' 个视频）<br>' +
+            '上次看到：<b>' + escapeHtml(item.name || parsed2.name || '视频') + '</b></p>' +
+            '<p style="font-size:13px;color:#888;margin-top:8px;">点击播放按钮继续观看</p>';
+          updatePlayButton();
+          saveState();
+          return true;
+        } else {
+          currentIndex = -1;
+        }
+        // 没有有效索引，显示列表但不自动播放
+        overlayEmpty.innerHTML =
+          '<div class="icon">🎬</div>' +
+          '<p>已恢复播放列表（' + playlist.length + ' 个视频）<br>点击任意视频开始播放</p>';
+        showOverlay('empty');
+        videoTitle.innerHTML = '<span>准备就绪</span>';
+      }
+      saveState();
+      return true;
+    } catch(e) {
+      console.warn('加载状态失败:', e);
+      playlist = [];
+      return false;
+    }
+  }
+
+  // ============================================================
+  //  B站 API —— 获取真实视频流 URL（多策略）
+  // ============================================================
+  function fetchBilibiliStream(bvid, aid, page, callback) {
+    var cancelled = false;
+    pendingBiliFetch = function() { cancelled = true; };
+
+    if (!bvid && !aid) { callback(null); return; }
+
+    // 构建基础查询参数
+    var idParam = bvid ? 'bvid=' + bvid : 'aid=' + aid;
+
+    // 策略 1: 标准 API（api.bilibili.com）
+    function tryStrategy1() {
+      overlayLoadingText.textContent = '正在获取B站视频信息...';
+      var infoUrl = 'https://api.bilibili.com/x/web-interface/view?' + idParam;
+
+      fetch(infoUrl)
+        .then(function(res) { return res.json(); })
+        .then(function(json) {
+          if (cancelled) return;
+          if (json.code !== 0 || !json.data) {
+            console.warn('策略1失败:', json.message || '无数据');
+            tryStrategy2();
+            return;
+          }
+          gotVideoInfo(json.data);
+        })
+        .catch(function(err) {
+          if (cancelled) return;
+          console.warn('策略1网络错误:', err.message);
+          tryStrategy2();
+        });
+    }
+
+    // 策略 2: 使用 www.bilibili.com 的页面数据接口
+    function tryStrategy2() {
+      overlayLoadingText.textContent = '尝试备用接口获取视频...';
+      var infoUrl2 = 'https://www.bilibili.com/video/' + (bvid || ('av' + aid));
+
+      // 尝试通过 fetch 获取页面，看 CORS 是否允许
+      fetch(infoUrl2, { redirect: 'follow' })
+        .then(function(res) { return res.text(); })
+        .then(function(html) {
+          if (cancelled) return;
+          // 从页面中提取 window.__INITIAL_STATE__
+          var match = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{.+?\});/);
+          if (match) {
+            try {
+              var state = JSON.parse(match[1]);
+              if (state && state.videoData) {
+                gotVideoInfo({
+                  cid: state.videoData.cid,
+                  title: state.videoData.title,
+                  pages: state.videoData.pages
+                });
+                return;
+              }
+            } catch(e) {}
+          }
+          console.warn('策略2失败: 无法解析页面数据');
+          callback(null);
+        })
+        .catch(function(err) {
+          if (cancelled) return;
+          console.warn('策略2失败:', err.message);
+          callback(null);
+        });
+    }
+
+    function gotVideoInfo(data) {
+      if (cancelled) return;
+      var cid = data.cid;
+      var title = data.title || '';
+      if (data.pages && data.pages.length >= page) {
+        cid = data.pages[page - 1].cid;
+      }
+
+      if (!cid) { callback(null); return; }
+
+      overlayLoadingText.textContent = '正在获取 ' + (title || '视频') + ' 的播放地址...';
+
+      // 获取视频流 —— 尝试多种 fnval
+      tryGetStream(1); // fnval=1: MP4
+
+      function tryGetStream(fnval) {
+        var playUrl = 'https://api.bilibili.com/x/player/playurl?' + idParam +
+          '&cid=' + cid + '&qn=80&fnval=' + fnval + '&fourk=1';
+        // 移动端 API 作为备选
+        var playUrlMobile = 'https://api.bilibili.com/x/player/playurl?' + idParam +
+          '&cid=' + cid + '&qn=80&fnval=' + fnval + '&platform=html5';
+
+        fetch(playUrl, { headers: { 'Referer': 'https://www.bilibili.com' } })
+          .then(function(res) { return res.json(); })
+          .then(handleStreamResponse)
+          .catch(function(err) {
+            if (cancelled) return;
+            // 移动端 API 再试
+            fetch(playUrlMobile, { headers: { 'Referer': 'https://m.bilibili.com' } })
+              .then(function(res) { return res.json(); })
+              .then(handleStreamResponse)
+              .catch(function() {
+                if (cancelled) return;
+                if (fnval === 1) { tryGetStream(0); return; } // 最后尝试 fnval=0 (FLV)
+                callback(null);
+              });
+          });
+      }
+
+      function handleStreamResponse(pjson) {
+        if (cancelled) return;
+        if (!pjson || pjson.code !== 0 || !pjson.data) {
+          console.warn('视频流获取失败:', pjson && pjson.message);
+          if (fnval === 1) { tryGetStream(0); return; }
+          callback(null);
+          return;
+        }
+        var streamUrl = null;
+        var d = pjson.data;
+        if (d.durl && d.durl.length > 0) {
+          streamUrl = d.durl[0].url;
+        } else if (d.dash) {
+          var videos = d.dash.video || [];
+          if (videos.length > 0) {
+            videos.sort(function(a, b) { return (b.bandwidth || 0) - (a.bandwidth || 0); });
+            streamUrl = videos[0].baseUrl || videos[0].base_url;
+          }
+        }
+        if (streamUrl) {
+          callback({ url: streamUrl, title: title });
+        } else {
+          callback(null);
+        }
+      }
+    }
+
+    // 启动策略 1
+    tryStrategy1();
+  }
+
+  // ============================================================
+  //  通用网页视频嗅探 —— 从页面源码提取 <video>/<source>
+  // ============================================================
+  function sniffVideoFromPage(url, callback) {
+    overlayLoadingText.textContent = '正在分析网页，查找视频源...';
+
+    fetch(url, { redirect: 'follow' })
+      .then(function(res) { return res.text(); })
+      .then(function(html) {
+        var foundUrls = [];
+
+        // 提取 <video src="...">
+        var videoSrcs = html.match(/<video[^>]+src\s*=\s*["']([^"']+)["']/gi) || [];
+        videoSrcs.forEach(function(m) {
+          var u = m.match(/src\s*=\s*["']([^"']+)["']/i);
+          if (u && u[1]) foundUrls.push(u[1]);
+        });
+
+        // 提取 <source src="...">
+        var sources = html.match(/<source[^>]+src\s*=\s*["']([^"']+)["']/gi) || [];
+        sources.forEach(function(m) {
+          var u = m.match(/src\s*=\s*["']([^"']+)["']/i);
+          if (u && u[1]) foundUrls.push(u[1]);
+        });
+
+        // 提取常见的视频URL模式
+        var urlPatterns = html.match(/https?:\/\/[^"'\s]+\.(?:mp4|m3u8|flv|webm|ts|mpd)(?:\?[^"'\s]*)?/gi) || [];
+        urlPatterns.forEach(function(u) { foundUrls.push(u); });
+
+        // 去重 + 转绝对URL
+        var seen = {};
+        var finalUrls = [];
+        foundUrls.forEach(function(u) {
+          try {
+            var absolute = new URL(u, url).href;
+            if (!seen[absolute]) { seen[absolute] = true; finalUrls.push(absolute); }
+          } catch(e) {}
+        });
+
+        if (finalUrls.length > 0) {
+          console.log('嗅探到 ' + finalUrls.length + ' 个视频地址:', finalUrls);
+          callback({ urls: finalUrls, best: finalUrls[0] });
+        } else {
+          callback(null);
+        }
+      })
+      .catch(function(err) {
+        console.warn('网页嗅探失败（CORS/网络）:', err.message);
+        callback(null);
+      });
+  }
+
+  // ============================================================
+  //  平台检测 & URL 转换
+  // ============================================================
+  function parseUrl(url) {
+    url = url.trim();
+    var result = { type: 'unknown', embedUrl: null, name: url, platformTag: 'unknown' };
+
+    // --- B站 ---
+    var biliMatch = url.match(/bilibili\.com\/video\/(?:BV([a-zA-Z0-9]+)|av(\d+))/);
+    if (!biliMatch) biliMatch = url.match(/b23\.tv\/([a-zA-Z0-9]+)/);
+    if (biliMatch) {
+      var bvid = biliMatch[1] || null;
+      var aid  = biliMatch[2] || null;
+      var page = 1;
+      var pMatch = url.match(/[?&]p=(\d+)/);
+      if (pMatch) page = parseInt(pMatch[1]);
+
+      result.type = 'bilibili';
+      result.bvid = bvid;
+      result.aid = aid;
+      result.page = page;
+      result.platformTag = 'bl';
+      result.name = 'B站: ' + (bvid || aid || url);
+      // embedUrl 留作 fallback
+      if (bvid) {
+        result.embedUrl = 'https://player.bilibili.com/player.html?bvid=' + bvid + '&page=' + page + '&autoplay=1&highQuality=1';
+      } else if (aid) {
+        result.embedUrl = 'https://player.bilibili.com/player.html?aid=' + aid + '&page=' + page + '&autoplay=1&highQuality=1';
+      } else {
+        result.embedUrl = url;
+      }
+      return result;
+    }
+
+    // --- YouTube ---
+    var ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) {
+      var videoId = ytMatch[1];
+      // mute=1 保证自动播放；enablejsapi=1 启用 API 便于检测结束
+      result.embedUrl = 'https://www.youtube-nocookie.com/embed/' + videoId + '?autoplay=1&mute=1&enablejsapi=1&controls=1';
+      result.type = 'youtube';
+      result.platformTag = 'yt';
+      result.name = 'YouTube: ' + videoId;
+      return result;
+    }
+
+    // --- 直链视频 ---
+    if (/\.(mp4|webm|ogg|ogv|mov|avi|mkv|flv|wmv|m3u8|mpd)(\?.*)?$/i.test(url) ||
+        /^https?:\/\/.+\.ts(\?.*)?$/i.test(url)) {
+      result.type = 'direct';
+      result.platformTag = 'mp4';
+      result.embedUrl = url;
+      try {
+        var u = new URL(url);
+        var filename = u.pathname.substring(u.pathname.lastIndexOf('/') + 1);
+        result.name = decodeURIComponent(filename);
+      } catch(e) { result.name = url.substring(0, 50); }
+      return result;
+    }
+
+    // --- 其他网页 → 尝试嗅探视频直链 ---
+    if (/^https?:\/\//.test(url)) {
+      result.type = 'webpage'; // 标记为网页，后续会尝试嗅探
+      result.platformTag = 'unknown';
+      result.embedUrl = url;
+      try { var u2 = new URL(url); result.name = u2.hostname; }
+      catch(e) { result.name = url.substring(0, 50); }
+      return result;
+    }
+
+    return null;
+  }
+
+  function getPlatformLabel(parsed) {
+    if (parsed.type === 'bilibili') return parsed.streamUrl ? 'B站(直)' : 'B站';
+    if (parsed.type === 'youtube') return 'YT';
+    if (parsed.type === 'direct') return '直链';
+    if (parsed.type === 'webpage' && parsed.streamUrl) return '嗅探';
+    return '网页';
+  }
+  function getPlatformClass(parsed) {
+    if (parsed.type === 'bilibili') return parsed.streamUrl ? 'mp4' : 'bl';
+    if (parsed.type === 'youtube') return 'yt';
+    if (parsed.type === 'direct') return 'mp4';
+    if (parsed.type === 'webpage' && parsed.streamUrl) return 'mp4';
+    return 'unknown';
+  }
+
+  // ============================================================
+  //  工具
+  // ============================================================
+  function formatTime(s) {
+    if (isNaN(s) || !isFinite(s)) return '00:00';
+    var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  }
+  function escapeHtml(str) {
+    var d = document.createElement('div'); d.textContent = str; return d.innerHTML;
+  }
+  function showToast(msg, type) {
+    var t = document.createElement('div');
+    t.className = 'toast' + (type === 'warn' ? ' warn' : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function() { t.remove(); }, 2600);
+  }
+
+  // ============================================================
+  //  覆盖层
+  // ============================================================
+  function showOverlay(which) {
+    overlayEmpty.style.display   = (which === 'empty')   ? '' : 'none';
+    overlayLoading.style.display = (which === 'loading') ? '' : 'none';
+    overlayError.style.display   = (which === 'error')   ? '' : 'none';
+  }
+
+  // ============================================================
+  //  播放器切换
+  // ============================================================
+  function hideAllPlayers() {
+    video.style.display = 'none';
+    iframePlayer.style.display = 'none';
+    iframePlayer.src = 'about:blank';
+    video.removeAttribute('src');
+    video.load();
+    if (iframeTimer) { clearInterval(iframeTimer); iframeTimer = null; }
+    ytListeningSent = false;
+    currentType = null;
+  }
+
+  function setPlayerMode(type) {
+    currentType = type;
+    if (type === 'direct') {
+      iframePlayer.style.display = 'none';
+      video.style.display = 'block';
+      progressBar.classList.remove('no-seek');
+      durationEl.textContent = '00:00';
+      currentTimeEl.textContent = '00:00';
+    } else {
+      video.style.display = 'none';
+      iframePlayer.style.display = 'block';
+      progressBar.classList.add('no-seek');
+      progressFill.style.width = '0%';
+      currentTimeEl.textContent = '--:--';
+      durationEl.textContent = '--:--';
+    }
+  }
+
+  // ============================================================
+  //  取消静音
+  // ============================================================
+  function updateUnmutePrompt() {
+    if (currentType === 'direct' && !video.paused && video.muted && !userInteracted) {
+      unmutePrompt.classList.add('show');
+    } else {
+      unmutePrompt.classList.remove('show');
+    }
+  }
+  function enableSound() {
+    userInteracted = true;
+    video.muted = false;
+    updateUnmutePrompt();
+    updateMuteButton();
+    showToast('🔊 声音已开启');
+  }
+  unmutePrompt.addEventListener('click', function(e) { e.stopPropagation(); enableSound(); });
+  container.addEventListener('click', function() {
+    if (!userInteracted) enableSound();
+  });
+
+  // ============================================================
+  //  postMessage 监听（YouTube + B站 iframe fallback）
+  // ============================================================
+  window.addEventListener('message', function(e) {
+    if (currentIndex < 0 || currentIndex >= playlist.length) return;
+    var item = playlist[currentIndex];
+    if (!item || !item._parsed) return;
+    var data = e.data;
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch(err) {} }
+    if (!data || typeof data !== 'object') return;
+
+    var parsed = item._parsed;
+
+    // YouTube
+    if (parsed.type === 'youtube') {
+      if ((data.event === 'onStateChange' && data.data === 0) ||
+          (data.event === 'infoDelivery' && data.info && data.info.playerState === 0)) {
+        console.log('YouTube 播放完毕');
+        playNext();
+      }
+      if (data.event === 'onReady') {
+        showOverlay('none');
+      }
+    }
+
+    // B站 iframe 兜底
+    if (parsed.type === 'bilibili' && !parsed.streamUrl) {
+      var ended =
+        data.type === 'video_ended' || data.type === 'ended' || data.type === 'player_ended' ||
+        data.event === 'video_ended' || data.event === 'ended' ||
+        data.action === 'video_ended' || data.action === 'ended' ||
+        (data.data && (data.data.type === 'video_ended' || data.data.type === 'ended')) ||
+        (data.info && (data.info.type === 'video_ended' || data.info.type === 'ended'));
+      if (ended) { console.log('B站 iframe 播放完毕'); playNext(); }
+    }
+  });
+
+  function sendYouTubeListening() {
+    if (!iframePlayer.contentWindow) return;
+    ytListeningSent = true;
+    iframePlayer.contentWindow.postMessage(JSON.stringify({
+      event: 'listening', id: 'vplayer', channel: 'vplayer'
+    }), '*');
+  }
+
+  iframePlayer.addEventListener('load', function() {
+    if (iframePlayer.src === 'about:blank' || !iframePlayer.src) return;
+    if (currentIndex < 0 || currentIndex >= playlist.length) return;
+    var item = playlist[currentIndex];
+    if (!item || !item._parsed) return;
+    var parsed = item._parsed;
+
+    if (parsed.type === 'youtube') {
+      setTimeout(function() {
+        sendYouTubeListening();
+        setTimeout(function() { sendYouTubeListening(); }, 1000);
+        setTimeout(function() { sendYouTubeListening(); }, 3000);
+      }, 500);
+    }
+    if (parsed.type === 'bilibili' || parsed.type === 'iframe') {
+      showOverlay('none');
+    }
+  });
+
+  function startIframePolling() {
+    if (iframeTimer) clearInterval(iframeTimer);
+    iframeTimer = setInterval(function() {
+      try { var _d = iframePlayer.contentDocument; /* 探测 */ } catch(e) {}
+    }, 3000);
+  }
+
+  // ============================================================
+  //  播放控制
+  // ============================================================
+  function playIndex(index) {
+    if (index < 0 || index >= playlist.length) return;
+
+    // 取消正在进行的 B站 API 请求
+    if (pendingBiliFetch) { pendingBiliFetch(); pendingBiliFetch = null; }
+
+    currentIndex = index;
+    var item = playlist[index];
+    if (!item._parsed) {
+      item._parsed = parseUrl(item.url);
+      if (!item._parsed) { showToast('无法识别的URL', 'warn'); return; }
+    }
+
+    var parsed = item._parsed;
+    showOverlay('loading');
+    overlayLoadingText.textContent = '正在加载视频...';
+    hideAllPlayers();
+
+    // 更新标题
+    var tag = getPlatformLabel(parsed);
+    var cls = getPlatformClass(parsed);
+    videoTitle.innerHTML = '<span class="platform-tag ' + cls + '">' + tag + '</span><span>' +
+      escapeHtml(item.name || parsed.name || item.url) + '</span>';
+
+    // ---- B站：优先通过 API 获取真实视频流 ----
+    if (parsed.type === 'bilibili') {
+      fetchBilibiliStream(parsed.bvid, parsed.aid, parsed.page, function(result) {
+        if (currentIndex !== index) return; // 已经切走了
+        if (result && result.url) {
+          // 🎉 拿到真实视频 URL → 用 <video> 播放，绕过所有平台限制
+          parsed.streamUrl = result.url;
+          if (result.title) { parsed.name = result.title; item.name = result.title; }
+          playDirectUrl(result.url, result.title || parsed.name);
+        } else {
+          // API 失败 → 降级到 iframe 嵌入
+          console.log('B站 API 解析失败，降级为 iframe 播放');
+          parsed.streamUrl = null;
+          playViaIframe(parsed.embedUrl);
+        }
+        saveState();
+        renderPlaylist();
+      });
+      renderPlaylist();
+      updatePlayButton();
+      return;
+    }
+
+    // ---- YouTube ----
+    if (parsed.type === 'youtube') {
+      playViaIframe(parsed.embedUrl);
+      renderPlaylist();
+      updatePlayButton();
+      saveState();
+      return;
+    }
+
+    // ---- 直链 ----
+    if (parsed.type === 'direct') {
+      playDirectUrl(parsed.embedUrl, parsed.name);
+      renderPlaylist();
+      updatePlayButton();
+      saveState();
+      return;
+    }
+
+    // ---- 其他网页：先尝试嗅探视频直链 ----
+    if (parsed.type === 'webpage') {
+      // 如果之前已经嗅探成功过（有缓存的 streamUrl），直接用
+      if (parsed.streamUrl) {
+        console.log('使用缓存的嗅探结果:', parsed.streamUrl);
+        playDirectUrl(parsed.streamUrl, parsed.name);
+        renderPlaylist();
+        updatePlayButton();
+        saveState();
+        return;
+      }
+      sniffVideoFromPage(parsed.embedUrl, function(result) {
+        if (currentIndex !== index) return;
+        if (result && result.best) {
+          // 🎉 从网页中提取到了视频直链！
+          parsed.streamUrl = result.best;
+          parsed.type = 'direct';
+          parsed.platformTag = 'mp4';
+          parsed.name = (parsed.name || '视频') + ' (已嗅探)';
+          item.name = parsed.name;
+          console.log('✅ 嗅探成功，使用直链播放:', result.best);
+          playDirectUrl(result.best, parsed.name);
+        } else {
+          // 嗅探失败 → 降级为 iframe（会看到验证码）
+          console.log('嗅探未发现视频URL，降级为iframe');
+          parsed.type = 'iframe';
+          playViaIframe(parsed.embedUrl);
+        }
+        renderPlaylist();
+        updatePlayButton();
+        saveState();
+      });
+      renderPlaylist();
+      updatePlayButton();
+      return;
+    }
+
+    // ---- 通用 iframe ----
+    playViaIframe(parsed.embedUrl);
+    renderPlaylist();
+    updatePlayButton();
+    saveState();
+  }
+
+  function playDirectUrl(url, title) {
+    setPlayerMode('direct');
+    if (userInteracted) { video.muted = false; }
+    else { video.muted = true; }
+    video.src = url;
+    video.load();
+    var p = video.play();
+    if (p !== undefined) {
+      p.then(function() {
+        showOverlay('none');
+        updateUnmutePrompt();
+        if (title) {
+          videoTitle.innerHTML = '<span class="platform-tag mp4">直链</span><span>' + escapeHtml(title) + '</span>';
+        }
+      }).catch(function(err) {
+        console.log('播放被阻止:', err.message);
+        showOverlay('none');
+        showToast('请点击播放按钮 ▶ 开始播放', 'warn');
+      });
+    }
+  }
+
+  function playViaIframe(url) {
+    setPlayerMode('iframe');
+    iframePlayer.src = url;
+    startIframePolling();
+    // iframe 加载完成后由 load 事件处理 overlay
+    setTimeout(function() { showOverlay('none'); }, 3000);
+  }
+
+  function playNext() {
+    if (!playlist.length) return;
+    var next = currentIndex + 1;
+    if (next >= playlist.length) {
+      if (loopMode) { next = 0; }
+      else { return; }
+    }
+    playIndex(next);
+  }
+
+  function playPrev() {
+    if (!playlist.length) return;
+    var prev = currentIndex - 1;
+    if (prev < 0) prev = loopMode ? playlist.length - 1 : 0;
+    playIndex(prev);
+  }
+
+  function togglePlay() {
+    if (!playlist.length) return;
+    if (currentIndex === -1) { playIndex(0); return; }
+    if (currentType === 'direct') {
+      if (video.paused) { video.play().catch(function() {}); }
+      else { video.pause(); }
+    } else {
+      showToast('平台视频请使用播放器内的控件', 'warn');
+    }
+  }
+
+  function updatePlayButton() {
+    if (currentType === 'direct') {
+      btnPlay.textContent = video.paused ? '▶' : '⏸';
+    } else {
+      btnPlay.textContent = '▶';
+    }
+  }
+
+  // ============================================================
+  //  添加/删除
+  // ============================================================
+  function addVideo(url) {
+    url = url.trim();
+    if (!url) return;
+    if (!/^https?:\/\/.+/.test(url)) {
+      showToast('请输入有效的网址', 'warn');
+      return;
+    }
+    var parsed = parseUrl(url);
+    if (!parsed) {
+      showToast('无法识别该网址', 'warn');
+      return;
+    }
+    playlist.push({ url: url, name: parsed.name, _parsed: parsed });
+    renderPlaylist();
+    saveState();
+    if (currentIndex === -1) playIndex(0);
+    urlInput.value = '';
+    urlInput.focus();
+  }
+
+  function removeItem(index) {
+    if (index < 0 || index >= playlist.length) return;
+    playlist.splice(index, 1);
+    if (!playlist.length) {
+      currentIndex = -1;
+      hideAllPlayers();
+      videoTitle.innerHTML = '<span>准备就绪</span>';
+      showOverlay('empty');
+    } else if (index === currentIndex) {
+      currentIndex = Math.min(currentIndex, playlist.length - 1);
+      playIndex(currentIndex);
+    } else if (index < currentIndex) {
+      currentIndex--;
+    }
+    renderPlaylist();
+    updatePlayButton();
+    saveState();
+  }
+
+  function clearAll() {
+    if (!playlist.length) return;
+    if (!confirm('确定要清空全部 ' + playlist.length + ' 个视频吗？此操作不可恢复。')) return;
+    playlist = [];
+    currentIndex = -1;
+    hideAllPlayers();
+    videoTitle.innerHTML = '<span>准备就绪</span>';
+    showOverlay('empty');
+    overlayEmpty.innerHTML =
+      '<div class="icon">🎬</div>' +
+      '<p>粘贴视频网址，自动识别并播放</p>' +
+      '<p>' +
+        '<span class="badge badge-bl">B站</span> ' +
+        '<span class="badge badge-yt">YouTube</span> ' +
+        '<span class="badge badge-mp4">直链</span> ' +
+        '<span class="badge" style="background:#888;">网页</span> 都支持' +
+      '</p>' +
+      '<p style="font-size:12px;color:#888;margin-top:6px;line-height:1.6;">' +
+        '💡 <b>学校/第三方网站有验证码？</b><br>' +
+        '按 <kbd>F12</kbd> → Network → 刷新 → 筛选 <b>media/mp4/m3u8</b><br>' +
+        '找到视频文件URL粘贴过来即可！' +
+      '</p>';
+    renderPlaylist();
+    updatePlayButton();
+    updateMuteButton();
+    saveState();
+    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  }
+
+  function exportList() {
+    if (!playlist.length) { showToast('播放列表为空', 'warn'); return; }
+    var text = playlist.map(function(item, i) {
+      var tag = item._parsed ? getPlatformLabel(item._parsed) : '?';
+      return (i+1) + '. [' + tag + '] ' + (item.name || item.url) + '\n   ' + item.url;
+    }).join('\n\n');
+    navigator.clipboard.writeText(text).then(function() {
+      showToast('✅ 播放列表已复制到剪贴板');
+    }).catch(function() { showToast('复制失败', 'warn'); });
+  }
+
+  // ============================================================
+  //  播放列表渲染
+  // ============================================================
+  function renderPlaylist() {
+    playlistEl.innerHTML = '';
+    if (!playlist.length) {
+      playlistEl.innerHTML = '<div style="padding:40px 20px;text-align:center;color:#666;">列表为空<br><span style="font-size:13px;">粘贴网址开始 🎥</span></div>';
+      playlistCount.textContent = '0 个视频';
+      return;
+    }
+    playlistCount.textContent = playlist.length + ' 个视频';
+    playlist.forEach(function(item, i) {
+      var parsed = item._parsed || parseUrl(item.url);
+      item._parsed = parsed;
+      var tag = getPlatformLabel(parsed);
+      var cls = getPlatformClass(parsed);
+      var div = document.createElement('div');
+      div.className = 'playlist-item' + (i === currentIndex ? ' playing' : '');
+      var apiBadge = (parsed.streamUrl) ? '<span class="api-badge">直连</span>' : '';
+      div.innerHTML =
+        '<span class="index">' + (i === currentIndex ? '▶' : i + 1) + '</span>' +
+        '<div class="info">' +
+          '<div class="name">' + escapeHtml(item.name || parsed.name || item.url) + '</div>' +
+          '<div class="url-preview">' + escapeHtml(item.url) + '</div>' +
+        '</div>' +
+        apiBadge +
+        '<span class="platform-tag ' + cls + '">' + tag + '</span>' +
+        '<button class="btn-remove" data-index="' + i + '" title="移除">✕</button>';
+      div.addEventListener('click', function(e) {
+        if (e.target.classList.contains('btn-remove')) return;
+        playIndex(i);
+      });
+      playlistEl.appendChild(div);
+    });
+    playlistEl.querySelectorAll('.btn-remove').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        removeItem(parseInt(btn.dataset.index));
+      });
+    });
+  }
+
+  // ============================================================
+  //  视频事件（直链模式）
+  // ============================================================
+  video.addEventListener('play', function() { updatePlayButton(); updateUnmutePrompt(); });
+  video.addEventListener('pause', function() {
+    updatePlayButton();
+    updateUnmutePrompt();
+    saveState(); // 暂停时保存进度
+  });
+  video.addEventListener('ended', function() {
+    console.log('✅ 直链视频播放完毕 → 自动切换');
+    saveState(); // 播放完毕时保存
+    playNext();
+  });
+  var _lastTimeSave = 0;
+  video.addEventListener('timeupdate', function() {
+    if (currentType !== 'direct') return;
+    if (video.duration) {
+      progressFill.style.width = (video.currentTime / video.duration * 100) + '%';
+      currentTimeEl.textContent = formatTime(video.currentTime);
+    }
+    // 每 5 秒保存一次进度
+    var now = Date.now();
+    if (now - _lastTimeSave > 5000) {
+      _lastTimeSave = now;
+      saveState();
+    }
+  });
+  video.addEventListener('loadedmetadata', function() {
+    durationEl.textContent = formatTime(video.duration);
+    showOverlay('none');
+  });
+  video.addEventListener('canplay', function() { showOverlay('none'); });
+  video.addEventListener('error', function() {
+    var msg = '未知错误';
+    switch(video.error ? video.error.code : -1) {
+      case 1: msg = '视频加载被中止'; break;
+      case 2: msg = '网络错误，无法下载视频'; break;
+      case 3: msg = '视频解码失败'; break;
+      case 4: msg = '浏览器不支持该格式'; break;
+    }
+    errTitle.textContent = '视频加载失败';
+    errDetail.textContent = msg;
+    showOverlay('error');
+    // 显示降级按钮
+    btnFallback.style.display = 'inline-block';
+  });
+
+  // 进度条点击
+  progressBar.addEventListener('click', function(e) {
+    if (currentType !== 'direct' || !video.duration) return;
+    var rect = progressBar.getBoundingClientRect();
+    video.currentTime = ((e.clientX - rect.left) / rect.width) * video.duration;
+  });
+
+  // 重试
+  btnRetry.addEventListener('click', function() {
+    btnFallback.style.display = 'none';
+    if (currentIndex >= 0 && currentIndex < playlist.length) {
+      playIndex(currentIndex);
+    }
+  });
+
+  // 降级为 iframe
+  btnFallback.addEventListener('click', function() {
+    if (currentIndex < 0 || currentIndex >= playlist.length) return;
+    var item = playlist[currentIndex];
+    if (!item || !item._parsed) return;
+    var parsed = item._parsed;
+    // 清除缓存的 streamUrl，强制用 iframe
+    parsed.streamUrl = null;
+    btnFallback.style.display = 'none';
+    playViaIframe(parsed.embedUrl || item.url);
+    renderPlaylist();
+    saveState();
+    showToast('已切换到内嵌页播放', 'warn');
+  });
+
+  // 音量
+  video.volume = 1;
+  volumeSlider.addEventListener('input', function() {
+    userInteracted = true;
+    video.volume = volumeSlider.value / 100;
+    video.muted = false;
+    updateMuteButton();
+  });
+  btnMute.addEventListener('click', function() {
+    userInteracted = true;
+    video.muted = !video.muted;
+    updateMuteButton();
+  });
+  function updateMuteButton() {
+    if (video.muted || video.volume === 0) btnMute.textContent = '🔇';
+    else if (video.volume < 0.5) btnMute.textContent = '🔉';
+    else btnMute.textContent = '🔊';
+  }
+  video.addEventListener('volumechange', function() {
+    volumeSlider.value = video.volume * 100;
+    updateMuteButton();
+  });
+
+  // 循环 / 全屏
+  btnLoop.addEventListener('click', function() {
+    loopMode = !loopMode;
+    btnLoop.classList.toggle('active', loopMode);
+    saveState();
+    showToast(loopMode ? '🔁 列表循环：开' : '🔁 列表循环：关');
+  });
+  btnFullscreen.addEventListener('click', function() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else container.requestFullscreen().catch(function() {});
+  });
+
+  // 按钮
+  btnPlay.addEventListener('click', function() {
+    if (!userInteracted) { userInteracted = true; video.muted = false; updateUnmutePrompt(); updateMuteButton(); }
+    togglePlay();
+  });
+  btnPrev.addEventListener('click', playPrev);
+  btnNext.addEventListener('click', playNext);
+  btnAdd.addEventListener('click', function() { addVideo(urlInput.value); });
+  urlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') addVideo(urlInput.value); });
+  btnClear.addEventListener('click', clearAll);
+  btnExport.addEventListener('click', exportList);
+
+  // 页面关闭前保存进度
+  window.addEventListener('beforeunload', function() { saveState(); });
+
+  // 快捷键
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    switch(e.key) {
+      case ' ': e.preventDefault(); togglePlay(); break;
+      case 'ArrowRight': e.preventDefault(); if (currentType === 'direct') video.currentTime += 5; break;
+      case 'ArrowLeft':  e.preventDefault(); if (currentType === 'direct') video.currentTime -= 5; break;
+      case 'ArrowUp':    e.preventDefault(); video.volume = Math.min(1, video.volume + 0.1); break;
+      case 'ArrowDown':  e.preventDefault(); video.volume = Math.max(0, video.volume - 0.1); break;
+      case 'n': case 'N': playNext(); break;
+      case 'p': case 'P': playPrev(); break;
+      case 'f': case 'F':
+        if (document.fullscreenElement) document.exitFullscreen();
+        else container.requestFullscreen().catch(function() {});
+        break;
+      case 'm': case 'M': userInteracted = true; video.muted = !video.muted; updateMuteButton(); break;
+      case 'l': case 'L': loopMode = !loopMode; btnLoop.classList.toggle('active', loopMode); break;
+    }
+  });
+
+  // Ctrl+V
+  document.addEventListener('paste', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    var text = (e.clipboardData || window.clipboardData).getData('text').trim();
+    if (/^https?:\/\/.+/.test(text)) addVideo(text);
+  });
+
+  // ============================================================
+  //  初始化
+  // ============================================================
+  var restored = loadState();
+  if (!restored) {
+    // 第一次使用或数据损坏
+    renderPlaylist();
+    showOverlay('empty');
+    updatePlayButton();
+    updateMuteButton();
+  }
+  btnLoop.classList.toggle('active', loopMode);
+  urlInput.focus();
+})();
+</script>
+</body>
+</html>
